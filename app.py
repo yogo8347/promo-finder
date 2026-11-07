@@ -54,6 +54,17 @@ div[data-testid="stMetricValue"] {color: #F0EBDD;}
 .note {color: #A8A39A; font-size: 0.9rem;}
 .clip {background: #1F1F1F; border-left: 4px solid #E3B341; border-radius: 8px; padding: 12px 16px; margin: 6px 0;}
 .clip b {color: #E3B341;}
+.banner {display: flex; gap: 18px; align-items: flex-start; padding: 20px 24px; margin-bottom: 8px; border-radius: 14px;
+  border: 1px solid #3A3220; border-left: 5px solid #E3B341;
+  background: linear-gradient(110deg, rgba(227,179,65,.16) 0%, rgba(227,179,65,.05) 45%, #1A1A1A 100%);}
+.banner .mark {flex: 0 0 auto; width: 52px; height: 52px; border-radius: 12px; background: #E3B341; color: #141414;
+  font-size: 24px; display: flex; align-items: center; justify-content: center; margin-top: 4px;}
+.banner .name {font-size: 2.3rem; font-weight: 700; color: #F0EBDD; line-height: 1.1;}
+.banner .name span {color: #E3B341;}
+.banner .tag {color: #C9C3B6; font-size: .95rem; margin-top: 6px; max-width: 900px;}
+.banner .chips {display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px;}
+.banner .chips span {font-size: .82rem; padding: 4px 12px; border-radius: 999px; background: rgba(227,179,65,.12);
+  border: 1px solid rgba(227,179,65,.35); color: #EBD9A8;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -197,9 +208,17 @@ with st.sidebar:
         s["rounds"] = st.slider("Head-to-head rounds", 1, 7, s["rounds"])
 
 # ------------------------------------------------------------------ main: input --------------
-st.title("🎬 Promo Finder")
-st.caption("Reads microdrama screenplays and finds the 20–60 s clips worth posting: exact cut points, "
-           "the hook, the cliffhanger, and why it works. Every timestamp comes from the script, never from the model.")
+st.markdown("""
+<div class="banner">
+<div class="mark">▶</div>
+<div>
+<div class="name">Promo <span>Finder</span></div>
+<div class="tag">Finds the 20–60 s clips worth posting from a microdrama's scripts: exact cut points, the hook,
+the cliffhanger, and why it works. Every timestamp comes from the script, never from the model.</div>
+<div class="chips"><span>⚡ Hook in the first 3 s</span><span>✂ Cuts on a cliffhanger</span><span>🎯 Makes sense to a stranger</span></div>
+</div>
+</div>
+""".replace("\n", " "), unsafe_allow_html=True)
 
 st.subheader("1. Screenplays")
 src = st.radio("Input", ["Upload files", "Folder on this computer"], horizontal=True, label_visibility="collapsed")
