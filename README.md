@@ -82,8 +82,12 @@ scripts ─► parse (code) ─► cut points (code) ─► candidates + rule sc
 6. **Head-to-head** (`tournament.py`): 0-10 scores bunch up at the top, so the top 28 play blind
    "which would you post, A or B?" games over 5 Swiss rounds; Bradley-Terry strengths re-rank them (70/30 with the
    score). It also **measures the judge**: how often the clip shown first wins, and whether a verdict survives swapping A and B.
-7. **Posting order**: early-episode promos first (a new viewer lands on episode 1), never the same episode twice in a row.
-8. **QA** (`qa.py`): hard validators on every promo, plus recall against `eval/reference_picks.json`.
+7. **Fact-check** (`grounding.py`): the AI's hook / cliffhanger text for the top 30 is checked against the script. Every quote must
+   appear in the clip (code), and an AI fact-check flags events that are not in the clip (e.g. something that happens after the cut).
+   Corrections are logged; if a fix still fails the code check, the real script line is used.
+8. **Posting order**: early-episode promos first (a new viewer lands on episode 1), never the same episode twice in a row,
+   never two posts that cut on the same moment.
+9. **QA** (`qa.py`): hard validators on every promo, plus recall against `eval/reference_picks.json`.
 
 ## Swap the model
 
@@ -100,7 +104,7 @@ Change one flag, one line in `.env`, or the sidebar in the app:
 | `anthropic` | `ANTHROPIC_API_KEY` | `claude-haiku-5-5` |
 
 **Free-tier reality (checked Nov 2026):** Gemini Flash models allow only about 20 free requests a day each, not enough
-for one show (a full run is about 195 calls). Gemma 4 on the same key has a much larger quota, so the free default is
+for one show (a full run is about 200 calls, measured at 288k input / 53k output tokens). Gemma 4 on the same key has a much larger quota, so the free default is
 `gemma-4-26b-a4b-it` with thinking set to `minimal` (`PROMO_THINKING`). Responses are cached in `.cache/llm/`, so re-runs
 are free and identical. If the model is unknown (404), out of daily quota, or overloaded 4 times in a row, the tool moves
 to a fallback model and records it in `llm_log.txt`.
@@ -118,15 +122,30 @@ Nothing about this show is hard-coded. Drop a new show's scripts in a folder and
 - `--merge other_slate.json` imports another tool's promos, snaps them to legal cuts, re-judges them blind and lets them
   compete; the QA report then shows which slate found each top moment.
 
+## Measuring it
+
+```bash
+# exact token cost of a full run, replayed from the cache (no generation quota used)
+python eval/measure_cost.py --input data/input
+
+# is the head-to-head stable? re-run it with different random first-round pairings
+python -m promo_finder --provider gemini --h2h-seed 1 --name stability_seed1
+
+# a second, independent reference set: a different model picks promo moments blind, then score a run against it
+python eval/independent_picks.py --input data/input
+python eval/independent_picks.py --score outputs/<run>/promos.json
+```
+
 ## Tests
 
 ```bash
 python -m pytest -q
 ```
 
-20 tests on synthetic scripts: timestamp formats, every block parsed, cuts never inside a line, promos always
+23 tests on synthetic scripts: timestamp formats, every block parsed, cuts never inside a line, promos always
 20-60 s with the hook in the first 3 s, made-up line IDs rejected, broken model JSON survived, batch judging,
-the head-to-head (Bradley-Terry, Swiss pairing, a position-biased fake judge), imported slates and scene jumps.
+the head-to-head (Bradley-Terry, Swiss pairing, a position-biased fake judge), imported slates, scene jumps,
+the fact-check (quotes not in the clip, fallback to the script line) and the no-repeated-ending posting rule.
 
 ## Confidentiality
 
@@ -136,9 +155,9 @@ Kuku's scripts, text quoted from them, or your API key. Share raw outputs by pri
 ## Repo layout
 
 ```
-promo_finder/   parser, features, candidates, llm, judge, tournament, external, rank, qa, report, pipeline, __main__
+promo_finder/   parser, features, candidates, llm, judge, tournament, grounding, external, rank, qa, report, pipeline, __main__
 app.py          Streamlit app
 tests/          unit + end-to-end tests
-eval/           reference-pick format (the real picks stay private)
+eval/           reference-pick format (the real picks stay private), measure_cost.py, independent_picks.py
 outputs/        runs are written here (git-ignored)
 ```

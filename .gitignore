@@ -14,3 +14,4 @@ outputs/*
 
 # reference picks quote the confidential scripts: shipped with the raw outputs, not the repo
 eval/reference_picks.json
+eval/independent_picks.json

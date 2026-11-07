@@ -26,6 +26,9 @@ def main(argv=None) -> None:
     ap.add_argument("--tournament", type=int, default=28, help="head-to-head pool size (0 = off; needs an LLM)")
     ap.add_argument("--rounds", type=int, default=5, help="Swiss rounds in the head-to-head")
     ap.add_argument("--recheck", type=int, default=10, help="games replayed with A/B swapped to measure the judge")
+    ap.add_argument("--verify-text", type=int, default=30,
+                    help="fact-check the AI's hook/cliffhanger text of the top N against the script (0 = off)")
+    ap.add_argument("--h2h-seed", type=int, default=None, help="shuffle head-to-head first-round pairings (stability tests)")
     a = ap.parse_args(argv)
     try:
         sys.stdout.reconfigure(encoding="utf-8")
@@ -34,12 +37,21 @@ def main(argv=None) -> None:
     res = run(RunConfig(input_dir=a.input, out_dir=a.out, provider=a.provider, model=a.model,
                         judge_top=a.judge_top, judge_batch=a.judge_batch, llm_propose=not a.no_propose, per_episode=a.per_episode,
                         montages=a.montages, top_n=a.top, run_name=a.name,
-                        merge=a.merge, tournament=a.tournament, rounds=a.rounds, recheck=a.recheck))
+                        merge=a.merge, tournament=a.tournament, rounds=a.rounds, recheck=a.recheck,
+                        verify_text=a.verify_text, h2h_seed=a.h2h_seed))
     print()
     print(f"engine: {res.meta['engine']}   promos: {len(res.ranked)}   validator failures: {len(res.qa['validator_failures'])}")
     rec = (res.qa.get("recall") or {}).get("recall", {})
     if rec:
         print("reference recall:", ", ".join(f"{k} {v['all_refs']} (A {v['tier_A']})" for k, v in rec.items()))
+    t = res.qa.get("tournament") or {}
+    if t and "skipped" not in t:
+        print(f"head-to-head: {t['games']} games, first clip won {t['position_bias_A_win_rate']:.0%}, "
+              f"swap agreement {t['swap_recheck']}, top-10 positions changed {t.get('top10_changed')}")
+    tc = res.qa.get("text_check") or {}
+    if tc:
+        print(f"text check: {tc['checked']} checked, hook fixed {tc['hook_fixed']}, cliffhanger fixed {tc['cut_fixed']}, "
+              f"fell back to the script line {tc['fallback_to_script']}")
     print("\nposting order:")
     from .rank import fields, segment_str
     for n, (p, why) in enumerate(res.plan[:10], 1):

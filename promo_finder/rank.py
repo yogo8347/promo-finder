@@ -141,6 +141,8 @@ def flags(p: Promo) -> list[str]:
         out.append(f"jumps scene inside the clip ({scene_jumps(p)}x)")
     if p.llm.get("verdict") == "reject":
         out.append("LLM judge rejected")
+    if p.llm.get("text_check"):
+        out.append("AI description corrected against the script")
     if p.llm.get("confusing"):
         out.append("judge: " + p.llm["confusing"][:80])
     return out
@@ -159,6 +161,11 @@ def funnel_bonus(p: Promo) -> float:
     return 0.0
 
 
+def _same_ending(a: Promo, b: Promo, tol: float = 2.0) -> bool:
+    x, y = a.segments[-1], b.segments[-1]
+    return x.episode == y.episode and abs(x.end - y.end) <= tol
+
+
 def posting_order(ranked: list[Promo], n: int = 10) -> list[tuple[Promo, str]]:
     pool = sorted(ranked, key=lambda p: -(p.scores["final"] + funnel_bonus(p)))
     plan: list[tuple[Promo, str]] = []
@@ -171,6 +178,8 @@ def posting_order(ranked: list[Promo], n: int = 10) -> list[tuple[Promo, str]]:
                 continue           # don't post two clips of the same scene back to back
             if sum(1 for q, _ in plan if q.kind == "montage") >= 3 and p.kind == "montage":
                 continue
+            if any(_same_ending(p, q) for q, _ in plan):
+                continue           # two posts that cut on the same moment would feel like repeats
             pick = p
             break
         if pick is None:

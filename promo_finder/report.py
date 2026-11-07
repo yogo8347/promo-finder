@@ -118,6 +118,12 @@ def write_all(res, cfg) -> Path:
                   "| judge check | result | what good looks like |", "|---|---|---|",
                   f"| clip shown first (A) wins | {t['position_bias_A_win_rate']:.0%} | about 50% |",
                   f"| same verdict when A and B are swapped | {t['swap_recheck']} | high; low = coin flips |"]
+    tc = q.get("text_check") or {}
+    if tc:
+        qa_md += ["", "## Fact-check of the AI's descriptions (top promos)", "",
+                  f"The AI's hook / cliffhanger text was checked against the script for {tc['checked']} promos: every quote must appear in the clip "
+                  f"(code), and an AI fact-check flags events that are not in the clip. Fixed: {tc['hook_fixed']} hooks, {tc['cut_fixed']} cliffhangers "
+                  f"({tc['fallback_to_script']} replaced with the actual script line). {tc['failed_calls']} failed calls. Details in `llm_log.txt`."]
     src = q.get("sources") or {}
     if any(len(v) > 1 or "ours" not in v for v in src.values()):
         qa_md += ["", "## 4. Which slate found the moments (when other slates were merged in)", "",

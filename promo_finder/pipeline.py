@@ -13,6 +13,7 @@ from . import candidates as C
 from . import judge as J
 from . import qa, rank
 from . import tournament as T
+from .grounding import verify as verify_text
 from .external import load_external
 from .llm import LLM
 from .parser import load_show
@@ -37,6 +38,8 @@ class RunConfig:
     rounds: int = 5               # Swiss rounds
     recheck: int = 10             # games replayed with A/B swapped, to measure the judge
     episodes: str = ""            # optional filter, e.g. "1-5" or "1,3,7" (blank = all)
+    verify_text: int = 30         # fact-check the AI's hook/cliffhanger text of the top N against the script (0 = off)
+    h2h_seed: int | None = None   # shuffle the head-to-head's first-round pairings (stability tests)
 
 
 @dataclass
@@ -49,6 +52,7 @@ class RunResult:
     log: list = field(default_factory=list)
     out_path: Path | None = None
     qa_tournament: dict = field(default_factory=dict)
+    qa_text: dict = field(default_factory=dict)
 
 
 def parse_episode_filter(spec: str) -> set[int]:
@@ -164,6 +168,9 @@ def run(cfg: RunConfig, progress: Callable[[str, float], None] | None = None) ->
         pool += extra
         in_pool = {id(p) for p in pool}
         rest = [p for p in ranked if id(p) not in in_pool]
+        if cfg.h2h_seed is not None:
+            import random
+            random.Random(cfg.h2h_seed).shuffle(pool)
         res.qa_tournament = T.run_tournament(
             llm, pool, rounds=cfg.rounds, recheck=cfg.recheck, label=rank.segment_str,
             progress=lambda d, n: say(f"head-to-head {d}/{n}", 0.9 + 0.06 * d / n))
@@ -174,6 +181,13 @@ def run(cfg: RunConfig, progress: Callable[[str, float], None] | None = None) ->
             res.qa_tournament["top10_changed"] = sum(1 for a, b in zip(before[:10], [id(p) for p in pool[:10]]) if a != b)
             ranked = pool + rest
         res.log += llm.events[n_ev:]
+    res.qa_text = {}
+    if llm.enabled and cfg.verify_text:
+        say("fact-checking the AI's descriptions against the script", 0.97)
+        res.qa_text = verify_text(llm, ranked[:cfg.verify_text])
+        for p in ranked[:cfg.verify_text]:
+            for part, ch in (p.llm.get("text_check") or {}).items():
+                res.log.append(f"text check: {rank.segment_str(p)} {part}: {ch['why']}: {ch['was'][:80]!r} -> {ch['now'][:80]!r}")
     for i, p in enumerate(ranked):
         p.id = f"P{i + 1:03d}"
     res.ranked = ranked
@@ -185,6 +199,7 @@ def run(cfg: RunConfig, progress: Callable[[str, float], None] | None = None) ->
     res.qa = {"validator_failures": bad, "n_checked": len(ranked),
               "recall": qa.recall_report(ranked, cfg.reference, eps),
               "tournament": res.qa_tournament,
+              "text_check": res.qa_text,
               "sources": _source_share(ranked)}
     res.meta = {
         "engine": llm.describe(), "provider": llm.provider, "model": llm.model,

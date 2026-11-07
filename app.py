@@ -131,8 +131,12 @@ def posting_plan(promos: list[dict], n: int = 10) -> list[tuple[dict, str]]:
     pool = sorted(promos, key=lambda p: -(p["scores"]["final"] + bonus(p)))
     plan, prev = [], set()
     while pool and len(plan) < n:
+        def same_end(x, y):
+            a, b = x["segments"][-1], y["segments"][-1]
+            return a["episode"] == b["episode"] and abs(a["end_s"] - b["end_s"]) <= 2.0
         pick = next((p for p in pool if not ({s["episode"] for s in p["segments"]} & prev)
-                     and not (p["type"] == "montage" and sum(q["type"] == "montage" for q, _ in plan) >= 3)), pool[0])
+                     and not (p["type"] == "montage" and sum(q["type"] == "montage" for q, _ in plan) >= 3)
+                     and not any(same_end(p, q) for q, _ in plan)), pool[0])
         pool.remove(pick)
         last = max(s["episode"] for s in pick["segments"])
         why = ("Episodes 1-5: sells the story a new viewer is about to start." if last <= 5 else
@@ -375,6 +379,10 @@ with tab_q:
         st.markdown("**Did it find the moments a human picked?** (reference picks for this show)")
         st.table(pd.DataFrame([{"Within": k, "Reference moments found": v["all_refs"],
                                 "Top-tier found": v["tier_A"]} for k, v in rec.items()]))
+    tc = qa.get("text_check") or {}
+    if tc:
+        st.markdown(f"**Fact-check of the AI's descriptions:** {tc['checked']} top promos checked against the script; "
+                    f"{tc['hook_fixed']} hooks and {tc['cut_fixed']} cliffhangers corrected.")
     if t and "skipped" not in t:
         st.markdown(f"**Head-to-head judge check:** the clip shown first won "
                     f"{t['position_bias_A_win_rate']:.0%} of {t['games']} games (fair is about 50%), "

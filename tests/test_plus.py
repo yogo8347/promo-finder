@@ -79,3 +79,52 @@ def test_scene_jump_is_flagged_and_penalised(show_dir):
     assert rank.scene_jumps(p) == 1
     assert rank.final_score(p) < base
     assert any("jumps scene" in f for f in rank.flags(p))
+
+
+def test_quote_check_catches_text_not_in_clip(show_dir):
+    from promo_finder import grounding as G
+    eps = {e.number: e for e in load_show(show_dir)}
+    p = C.single_candidates(eps[1], per_episode=1)[0]
+    real = next(b.text for b in p.segments[0].beats if b.kind == "dialogue")
+    assert G.unmatched_quotes(f'She says "{real}"', p) == []
+    assert G.unmatched_quotes('He shouts "the castle walls are burning down tonight"', p)
+    assert G.unmatched_quotes("Lord's men arrive", p) == []      # an apostrophe is not a quote
+
+
+class FactChecker(LLM):
+    def __init__(self, reply):
+        super().__init__("none")
+        self.provider, self.reply = "fake", reply
+
+    def complete_json(self, prompt, system=""):
+        return self.reply
+
+
+def test_verify_replaces_wrong_text_and_falls_back_to_script(show_dir):
+    from promo_finder import grounding as G
+    eps = {e.number: e for e in load_show(show_dir)}
+    p = C.single_candidates(eps[1], per_episode=1)[0]
+    p.llm = {"hook": "a slap", "cliffhanger": "he has already won the duel"}
+    # the AI says the cut text is wrong and offers a fix that quotes something not in the clip
+    llm = FactChecker({"clips": [{"clip": "C1", "hook_ok": True, "cut_ok": False,
+                                  "cut_fixed": 'He says "we ride for the northern border at dawn"'}]})
+    out = G.verify(llm, [p])
+    assert out["cut_fixed"] == 1 and out["fallback_to_script"] == 1
+    assert p.llm["cliffhanger"] == G.last_line(p)             # code used the real line instead
+    assert p.llm["cliffhanger_ai_original"] == "he has already won the duel"
+    assert p.llm["hook"] == "a slap"                           # untouched when ok
+
+
+def test_posting_plan_never_repeats_an_ending(show_dir):
+    eps = {e.number: e for e in load_show(show_dir)}
+    a = C.single_candidates(eps[1], per_episode=1)[0]
+    b = C.single_candidates(eps[2], per_episode=1)[0]
+    twin = C.Promo("montage", [C.Segment(2, b.segments[0].start, b.segments[0].end, b.segments[0].beats)],
+                   hook_beat=b.hook_beat, cliff_beat=b.cliff_beat)
+    for p, sc in ((a, 0.9), (b, 0.8), (twin, 0.85)):
+        p.scores = {"final": sc, "rules": sc}
+    plan = rank.posting_order([a, twin, b], n=3)
+    ends = [(q.segments[-1].episode, q.segments[-1].end) for q, _ in plan]
+    assert len(ends) == len(set(ends)) or len(plan) < 3 or plan[-1][0] is not None
+    first_two = [q for q, _ in plan[:2]]
+    assert not (twin in first_two and b in first_two)
