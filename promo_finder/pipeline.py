@@ -36,6 +36,7 @@ class RunConfig:
     tournament: int = 28          # head-to-head pool size (0 = off); needs an LLM
     rounds: int = 5               # Swiss rounds
     recheck: int = 10             # games replayed with A/B swapped, to measure the judge
+    episodes: str = ""            # optional filter, e.g. "1-5" or "1,3,7" (blank = all)
 
 
 @dataclass
@@ -48,6 +49,18 @@ class RunResult:
     log: list = field(default_factory=list)
     out_path: Path | None = None
     qa_tournament: dict = field(default_factory=dict)
+
+
+def parse_episode_filter(spec: str) -> set[int]:
+    """'1-5, 9' -> {1, 2, 3, 4, 5, 9}"""
+    want: set[int] = set()
+    for part in spec.replace(" ", "").split(","):
+        if "-" in part:
+            a, b = part.split("-", 1)
+            want.update(range(int(a), int(b) + 1))
+        elif part:
+            want.add(int(part))
+    return want
 
 
 def _source(p) -> str:
@@ -83,6 +96,9 @@ def run(cfg: RunConfig, progress: Callable[[str, float], None] | None = None) ->
 
     say("parsing scripts", 0.0)
     show = load_show(cfg.input_dir)
+    if cfg.episodes.strip():
+        want = parse_episode_filter(cfg.episodes)
+        show = [e for e in show if e.number in want]
     if not show:
         raise SystemExit(f"no screenplay .txt files found in {cfg.input_dir}")
     eps = {e.number: e for e in show}
