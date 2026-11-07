@@ -132,6 +132,13 @@ def write_all(res, cfg) -> Path:
         if fl:
             qa_md.append(f"- {p.id} {rank.segment_str(p)}: " + "; ".join(fl))
     (out / "qa_report.md").write_text("\n".join(qa_md), encoding="utf-8")
+    # transcript-free copy (hook / cliffhanger / why can still quote a short line: share privately)
+    public = [{k: v for k, v in promo_dict(p, i + 1).items() if k not in ("transcript", "llm", "llm_proposal", "notes")}
+              for i, p in enumerate(ranked)]
+    (out / "promos.public.json").write_text(json.dumps({
+        "_notice": "Timestamps, scores and flags without transcripts. Hook / cliffhanger / why can still quote a "
+                   "short line of the confidential scripts, so share this by private link too.",
+        "promos": public}, indent=2, ensure_ascii=False), encoding="utf-8")
     (out / "run_meta.json").write_text(json.dumps({**res.meta, "qa": q}, indent=2, default=str), encoding="utf-8")
     (out / "llm_log.txt").write_text("\n".join(res.log) or "(no LLM events)", encoding="utf-8")
     return out
