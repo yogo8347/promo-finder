@@ -40,6 +40,7 @@ class RunConfig:
     episodes: str = ""            # optional filter, e.g. "1-5" or "1,3,7" (blank = all)
     verify_text: int = 30         # fact-check the AI's hook/cliffhanger text of the top N against the script (0 = off)
     h2h_seed: int | None = None   # shuffle the head-to-head's first-round pairings (stability tests)
+    cache_dir: str = ".cache/llm" # where model answers are cached (a temp dir per run on the public app)
 
 
 @dataclass
@@ -89,7 +90,7 @@ def run(cfg: RunConfig, progress: Callable[[str, float], None] | None = None) ->
     say = progress or (lambda msg, frac: print(f"[{frac:4.0%}] {msg}"))
     t_start = time.time()
     res = RunResult()
-    llm = LLM(cfg.provider, cfg.model)
+    llm = LLM(cfg.provider, cfg.model, cache_dir=cfg.cache_dir)
     if llm.enabled:   # fail fast with a clear message instead of 100 identical errors
         try:
             llm.complete('Reply with JSON {"ok": true}', want_json=True)

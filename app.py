@@ -30,6 +30,46 @@ from promo_finder.pipeline import RunConfig, run  # noqa: E402
 
 st.set_page_config(page_title="Promo Finder", page_icon="🎬", layout="wide")
 
+# Public mode (Streamlit Community Cloud, or PROMO_PUBLIC=1): many visitors share one server process, so
+# keys live only in each visitor's session, saved runs are not listed, and every run gets a private temp folder.
+PUBLIC = os.environ.get("PROMO_PUBLIC") == "1" or APP_DIR.as_posix().startswith("/mount/src")
+
+
+@st.cache_resource
+def _run_lock():
+    import threading
+    return threading.Lock()
+
+
+def get_key(name: str | None) -> str:
+    if not name:
+        return ""
+    if PUBLIC:
+        return st.session_state.get("keys", {}).get(name, "")
+    return os.environ.get(name, "")
+
+
+class session_env:
+    """Expose this visitor's key (and base URL) to the pipeline only while their call runs."""
+    def __init__(self, values: dict):
+        self.values = {k: v for k, v in values.items() if k and v}
+
+    def __enter__(self):
+        if PUBLIC:
+            _run_lock().acquire()
+            self.old = {k: os.environ.get(k) for k in self.values}
+            os.environ.update(self.values)
+        return self
+
+    def __exit__(self, *exc):
+        if PUBLIC:
+            for k, v in self.old.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+            _run_lock().release()
+
 ENV_KEYS = {"gemini": "GEMINI_API_KEY", "groq": "GROQ_API_KEY", "openrouter": "OPENROUTER_API_KEY",
             "openai": "OPENAI_API_KEY", "anthropic": "ANTHROPIC_API_KEY", "ollama": None, "none": None}
 PROVIDER_HELP = {
@@ -71,7 +111,10 @@ div[data-testid="stMetricValue"] {color: #F0EBDD;}
 
 # ------------------------------------------------------------------ helpers -------------------
 def save_key(name: str, value: str) -> None:
-    """Write or replace one key in the local .env (git-ignored, never committed)."""
+    """Local: write or replace one key in .env (git-ignored). Public: keep it in this visitor's session only."""
+    if PUBLIC:
+        st.session_state.setdefault("keys", {})[name] = value
+        return
     path = APP_DIR / ".env"
     lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
     lines = [l for l in lines if not l.strip().startswith(f"{name}=")] + [f"{name}={value}"]
@@ -156,28 +199,33 @@ def segs(p: dict) -> str:
 with st.sidebar:
     st.header("Model")
     provs = list(ENV_KEYS)
-    default_prov = os.environ.get("PROMO_LLM_PROVIDER", "gemini")
+    default_prov = "none" if PUBLIC else os.environ.get("PROMO_LLM_PROVIDER") or ("gemini" if os.environ.get("GEMINI_API_KEY") else "none")
     provider = st.selectbox("Provider", provs, provs.index(default_prov) if default_prov in provs else 0)
     st.caption(PROVIDER_HELP[provider])
 
     env_key = ENV_KEYS[provider]
-    current = os.environ.get(env_key, "") if env_key else ""
+    current = get_key(env_key)
     if env_key:
         with st.expander("API key", expanded=not current):
             if current:
-                st.success(f"Key loaded from .env (ends …{current[-4:]})")
+                st.success(f"Key {'set for this session' if PUBLIC else 'loaded from .env'} (ends …{current[-4:]})")
             else:
                 st.warning("No key yet. Paste one below and press Save.")
             new_key = st.text_input(env_key, type="password", placeholder="Paste a key to add or change it",
-                                    help="Saved only in the local .env file, which git ignores.")
+                                    help="Kept only in your browser session on this site." if PUBLIC
+                                    else "Saved only in the local .env file, which git ignores.")
             if st.button("Save key", width="stretch", disabled=not new_key):
                 save_key(env_key, new_key.strip())
                 st.rerun()
 
+    base_url = ""
     if provider == "openai":
-        os.environ["OPENAI_BASE_URL"] = st.text_input(
-            "Base URL", os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1"),
+        base_url = st.text_input(
+            "Base URL", st.session_state.get("base_url") or os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1"),
             help="Point this at any OpenAI-compatible API.")
+        st.session_state["base_url"] = base_url
+        if not PUBLIC:
+            os.environ["OPENAI_BASE_URL"] = base_url
 
     model = ""
     if provider != "none":
@@ -196,7 +244,7 @@ with st.sidebar:
         else:
             model = st.text_input("Model", default_model)
         if st.button("Test this model", width="stretch", disabled=bool(env_key) and not current):
-            with st.spinner("Calling the model once…"):
+            with st.spinner("Calling the model once…"), session_env({env_key: current, "OPENAI_BASE_URL": base_url}):
                 ok, msg = test_model(provider, model)
             (st.success if ok else st.error)(msg)
 
@@ -225,7 +273,11 @@ the cliffhanger, and why it works. Every timestamp comes from the script, never 
 """.replace("\n", " "), unsafe_allow_html=True)
 
 st.subheader("1. Screenplays")
-src = st.radio("Input", ["Upload files", "Folder on this computer"], horizontal=True, label_visibility="collapsed")
+src = "Upload files" if PUBLIC else st.radio("Input", ["Upload files", "Folder on this computer"], horizontal=True,
+                                              label_visibility="collapsed")
+if PUBLIC:
+    st.caption("Uploaded scripts are processed on this server for your session only (and sent to the AI provider "
+               "you pick, if any). Nothing is listed for other visitors.")
 workdir, n_files = None, 0
 if src == "Upload files":
     ups = st.file_uploader("Episode .txt files, or one .zip of them", type=["txt", "zip"], accept_multiple_files=True)
@@ -248,8 +300,8 @@ go = c1.button("▶ Run", type="primary", disabled=not workdir, width="stretch")
 c2.markdown(f"<div class='note'>Model: <b>{provider}{(' · ' + model) if model else ''}</b>"
             f"{'' if provider == 'none' else ' · ' + speed}</div>", unsafe_allow_html=True)
 
-saved = sorted(Path("outputs").glob("*/promos.json"), key=lambda p: p.stat().st_mtime, reverse=True)
-with st.expander("…or open a saved run"):
+saved = [] if PUBLIC else sorted(Path("outputs").glob("*/promos.json"), key=lambda p: p.stat().st_mtime, reverse=True)
+with (st.container() if PUBLIC else st.expander("…or open a saved run")):
     if saved:
         names = [p.parent.name for p in saved]
         def _open():
@@ -257,7 +309,7 @@ with st.expander("…or open a saved run"):
                 st.session_state["run_dir"] = str(Path("outputs") / st.session_state["saved_pick"])
         st.selectbox("Saved run", ["(choose)"] + names, key="saved_pick", on_change=_open,
                      help="02_plus_gemma4_26b is the submitted result.")
-    else:
+    elif not PUBLIC:
         st.caption("No saved runs yet.")
 
 if go and workdir:
@@ -275,9 +327,12 @@ if go and workdir:
 
         cfg = RunConfig(input_dir=workdir, provider=provider, model=model or None, episodes=ep_spec,
                         run_name=f"app_{time.strftime('%Y%m%d_%H%M%S')}",
+                        out_dir=tempfile.mkdtemp(prefix="promo_out_") if PUBLIC else "outputs",
+                        cache_dir=tempfile.mkdtemp(prefix="promo_cache_") if PUBLIC else ".cache/llm",
                         **({k: v for k, v in s.items()} if provider != "none" else {}))
         try:
-            res = run(cfg, progress=progress)
+            with session_env({env_key: current, "OPENAI_BASE_URL": base_url}):
+                res = run(cfg, progress=progress)
         except SystemExit as e:
             status.update(label=str(e), state="error")
             st.stop()
@@ -291,7 +346,8 @@ if go and workdir:
 # ------------------------------------------------------------------ results -------------------
 run_dir = st.session_state.get("run_dir")
 if not run_dir:
-    st.info("Pick the screenplays above and press **▶ Run**, or open a saved run.")
+    st.info("Upload a show's episode scripts above and press **▶ Run**." if PUBLIC
+            else "Pick the screenplays above and press **▶ Run**, or open a saved run.")
     st.stop()
 
 out = Path(run_dir)
