@@ -7,6 +7,10 @@ cliffhanger, a one-line pitch, scores, warning flags and the transcript. It also
 
 Built for the Kuku AI Generalist assignment (Problem 1: Find the Promos).
 
+**Live app: https://promo-finder-yojit.streamlit.app** (upload a show's episode scripts, press Run; rules-only works with no key,
+or paste your own API key in the sidebar for the AI judge). The full results on the assignment's input pack quote Kuku's
+confidential scripts, so they were shared privately with the submission and are not in this repo.
+
 ## Run it (5 minutes)
 
 Needs Python 3.10 or newer.
@@ -25,6 +29,8 @@ confidential and is **not** in this repo.
 ```bash
 streamlit run app.py
 ```
+
+On the hosted app, keys stay in your browser session only; nothing is saved on the server or shown to other visitors.
 
 1. **Sidebar → Model:** pick a provider. For Gemini, open *API key*, paste a free key from
    https://aistudio.google.com/apikey and press **Save key** (it goes into a local `.env` that git ignores).
