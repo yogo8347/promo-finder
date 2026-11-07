@@ -1,0 +1,17 @@
+# secrets
+.env
+# Kuku's scripts are confidential: never commit the input pack
+data/input/
+*.zip
+# caches
+.cache/
+__pycache__/
+*.pyc
+
+# raw outputs quote Kuku's confidential scripts: share them by private link, not in a public repo
+outputs/*
+!outputs/.gitkeep
+
+# reference picks quote the confidential scripts: shipped with the raw outputs, not the repo
+eval/reference_picks.json
+data/external/
